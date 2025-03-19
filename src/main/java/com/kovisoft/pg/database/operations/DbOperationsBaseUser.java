@@ -78,7 +78,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             for(Map.Entry<Class<T>, PreparedStatement> entry : batchMap.entrySet()){
                 try{
                     ResultSet rs = entry.getValue().getGeneratedKeys();
-                    if(rs.next()) throw new SQLException("Unable to retrieve inserted ids from execution on " + entry.getKey().getSimpleName());
+                    if(!rs.next()) throw new SQLException("Unable to retrieve inserted ids from execution on " + entry.getKey().getSimpleName());
                     List<Long> generatedIds = new ArrayList<>();
                     do{
                         generatedIds.add(rs.getLong(1));
@@ -207,11 +207,12 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 pStmt.setLong(i+1, nonNullIds.get(i));
             }
             ResultSet rs = pStmt.executeQuery();
-            if(!rs.next()){
+            List<Map<String, Object>> objMaps = processQueryResultSet(rs);
+            if(objMaps == null){
                 logger.error("Really not one correct id? You fucking donkey!");
                 return List.of();
             }
-            List<Map<String, Object>> objMaps = processQueryResultSet(rs);
+
             return reflectRecordsFromMaps(objMaps, recordClass);
         } catch (Exception e) {
             logger.except("Failed to get records by IDs for Table: " + recordClass.getSimpleName(), e);
@@ -254,7 +255,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             ResultSet rs = pStmt.executeQuery();
             List<? extends SQLRecord> matches = reflectRecordsFromMaps(processQueryResultSet(rs), record.getClass());
             pStmt.close();
-            return (List<T>) matches;
+            return (matches != null) ? (List<T>) matches : List.of();
         } catch (Exception e) {
             logger.except("Unable to match record by column names.", e);
         }
