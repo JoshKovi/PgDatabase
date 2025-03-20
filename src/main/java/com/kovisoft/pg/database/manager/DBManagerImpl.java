@@ -96,8 +96,13 @@ public class DBManagerImpl extends DBManager {
         recordClasses = new ArrayList<>(records.keySet());
         String connString = String.format(F_URL, config.getHost(), config.getPort());
         if(config.getSuperUser() != null && config.getSuperPass() != null){
+
+            if(config.isMigrate() && tms != null && !tms.isEmpty()){
+                moveTables(tms, config);
+            }
+
             // Create DB and then ConnectionWrapper
-            createDBIfAbsent(connString + "postgres", config);
+            createDBIfAbsent(connString + "postgres", config, config.getDb());
             cwCurrent = PoolFactory.createSingleConnectionWrapper(connString + config.getDb(),
                     config.getSuperUser(), config.getSuperPass());
 
@@ -107,10 +112,6 @@ public class DBManagerImpl extends DBManager {
 
             // Create Tables with default privileges for user
             destructiveColumns = config.isDestructiveColumns();
-
-            if(config.isMigrate() && tms != null && !tms.isEmpty()){
-                moveTables(tms, config);
-            }
 
             createTablesFromRecords();
             // Grant privileges on all tables
@@ -124,7 +125,7 @@ public class DBManagerImpl extends DBManager {
 
             // If necessary trigger migration of tables and data
             if(config.isMigrate() && tms != null && !tms.isEmpty()){
-                if(migrateFromOldTables(tms, config)) throw new RuntimeException("Migration failed during conversion of data");
+                if(!migrateFromOldTables(tms, config)) throw new RuntimeException("Migration failed during conversion of data");
             }
             try{
                 cwCurrent.close();
@@ -176,8 +177,9 @@ public class DBManagerImpl extends DBManager {
                 statement.execute(terminateCurrent);
                 statement.execute(archiveCurrent);
                 statement.execute(dropCurrentDatabase);
+                createDBIfAbsent(connString + "postgres", config, tm.getCurrentDB());
                 return;
-            } catch (SQLException e) {
+            } catch (SQLException | InterruptedException e) {
                 throw new RuntimeException("TABLE MOVES FAILED, DO NOT RUN AGAIN UNTIL YOU VERIFY ALL DATA IS IN THE PROPER LOCATION",e);
             }
         }
@@ -334,17 +336,17 @@ public class DBManagerImpl extends DBManager {
     }
 
     @Override
-    protected void createDBIfAbsent(String url, DBManagerConfig config) throws SQLException, InterruptedException {
+    protected void createDBIfAbsent(String url, DBManagerConfig config, String dbName) throws SQLException, InterruptedException {
         try(Connection con = DriverManager.getConnection(url, config.getSuperUser(), config.getSuperPass());
             PreparedStatement stmt = con.prepareStatement("SELECT 1 FROM pg_database WHERE datname = ?");
-            PreparedStatement cStmt = con.prepareStatement("CREATE DATABASE ?")){
-            stmt.setString(1, config.getDb());
+            Statement cStmt = con.createStatement()){
+
+            stmt.setString(1, dbName);
             ResultSet rs = stmt.executeQuery();
             if(rs.next()){logger.log("Database exists already!");}
             else{
                 logger.log("Database needs to be created...");
-                cStmt.setString(1, config.getDb());
-                cStmt.executeUpdate();
+                cStmt.executeUpdate("CREATE DATABASE " + dbName);
                 Thread.sleep(3000); // Helps give some space for follow-up operations
             }
         }
@@ -607,7 +609,7 @@ public class DBManagerImpl extends DBManager {
             if(isJsonB){
                 insertValuesSB.append("?::jsonb,");
             } else {
-                insertValuesSB.append("?,");
+                insertValuesSB.append("?, ");
             }
             //Update Record
             updateSB.append(fieldName).append(" = ?");
@@ -626,7 +628,9 @@ public class DBManagerImpl extends DBManager {
         }
 
         insertSB.setLength(insertSB.length() - 2);
-        insertSB.append(insertValuesSB).append(")");
+        insertSB.append(insertValuesSB);
+        insertSB.setLength(insertSB.length() - 2);
+        insertSB.append(")");
         prepMap.put(tableName + AbstractDbOperations.INSERT_MANY, insertSB.toString() +";");
         constMap.put(tableName + AbstractDbOperations.INSERT_MANY, Statement.RETURN_GENERATED_KEYS);
         prepMap.put(tableName + AbstractDbOperations.INSERT, insertSB.append(" RETURNING *;").toString());

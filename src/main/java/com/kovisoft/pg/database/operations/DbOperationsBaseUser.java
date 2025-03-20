@@ -540,7 +540,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 String json = rs.getString(i);
                 JsonNode rootNode = om.readTree(json);
                 if(rootNode.has("list")){
-                    Class<?> clazz = Class.forName(rootNode.get("clazz").asText());
+                    Class<?> clazz = Class.forName(rootNode.get("type").asText());
                     value = om.readValue(json, om.getTypeFactory().constructParametricType(ArrayListHolder.class, clazz));
                 } else if(rootNode.has("keyType")){
                     Class<?> keyType = Class.forName(rootNode.get("keyType").asText());
@@ -550,6 +550,10 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                     logger.warn("Unknown JSONB type ignored for column named: " + columnName);
                     value = null;
                 }
+            } else if (md.getColumnType(i) == Types.ARRAY){
+                Array array = rs.getArray(i);
+                value = List.of((Object[])array.getArray());
+
             } else {
                 value = rs.getObject(i);
             }
@@ -574,7 +578,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     private void populateStatement(PreparedStatement pStmt, SQLRecord record, boolean isUpdate)
-            throws InvocationTargetException, IllegalAccessException, SQLException, NoSuchFieldException {
+            throws InvocationTargetException, IllegalAccessException, SQLException, NoSuchFieldException, JsonProcessingException {
         RecordComponent[] comps = record.getClass().getRecordComponents();
         for(int i = 1; i < comps.length; i++){
 
@@ -583,13 +587,8 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             Object value = record.getObjectValueByFieldName(fieldName);
             if(value == null) pStmt.setObject(i, null);
             else if(fieldType.equals(LocalDateTime.class)) pStmt.setString(i, value == null ? "" : value.toString());
-            else if(fieldType.equals(ArrayList.class)){
-                SQLConvertType sqlType = SQLConvertType.getByClassSimpleName(comps[i].getType().getSimpleName());
-                if(sqlType == null){
-                    throw new SQLException(String.format("Could not generate array for %s!", record.getClass().getSimpleName()));
-                }
-                Array array = pStmt.getConnection().createArrayOf(sqlType.getArrayType(), ((ArrayList<String>)value).toArray());
-                pStmt.setArray(i, array);
+            else if (fieldType == ArrayListHolder.class || fieldType == HashMapHolder.class){
+                pStmt.setString(i, om.writeValueAsString(value));
             } else if(fieldType.isEnum()){
                 pStmt.setInt(i, ((Enum<?>)value).ordinal());
             } else pStmt.setObject(i, value);

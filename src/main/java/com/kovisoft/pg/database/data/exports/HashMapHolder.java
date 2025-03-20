@@ -1,5 +1,9 @@
 package com.kovisoft.pg.database.data.exports;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -16,7 +20,8 @@ public class HashMapHolder<K,V> {
         this.hashMap = new HashMap<>();
     }
 
-    public HashMapHolder(Class<?> keyType, Class<?> valueType, Map<K, V> map){
+    @JsonCreator
+    public HashMapHolder(@JsonProperty("keyType") Class<?> keyType, @JsonProperty("valueType") Class<?> valueType, @JsonProperty("map") Map<K, V> map){
         this(keyType, valueType);
         this.hashMap.putAll(map);
     }
@@ -33,6 +38,7 @@ public class HashMapHolder<K,V> {
         return hashMap.containsKey(key);
     }
 
+    @JsonIgnore
     public int size(){
         return hashMap.size();
     }
@@ -41,6 +47,7 @@ public class HashMapHolder<K,V> {
         return this.hashMap;
     }
 
+    @JsonIgnore
     public Set<Map.Entry<K, V>> getEntrySet(){
         return this.hashMap.entrySet();
     }

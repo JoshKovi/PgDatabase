@@ -1,5 +1,9 @@
 package com.kovisoft.pg.database.data.exports;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collection;
@@ -31,7 +35,8 @@ public class ArrayListHolder <T>{
      * @param type The Class of the data held in List.
      * @param list The list containing the data of type.
      */
-    public ArrayListHolder(Class<T> type, List<T> list){
+    @JsonCreator
+    public ArrayListHolder(@JsonProperty("type") Class<T> type, @JsonProperty("list")List<T> list){
         clazz = type;
         this.list = new ArrayList<>(list);
     }
@@ -51,7 +56,7 @@ public class ArrayListHolder <T>{
             return;
         }
         if(list.getClass() == ArrayListHolder.class) {
-            this.list = (ArrayList<T>) list;
+            this.list = ((ArrayListHolder<T>) list).getList();
             return;
         } else if(!(List.class.isAssignableFrom(list.getClass()))) {
             throw new IllegalStateException("Object must be a List!");
@@ -103,6 +108,7 @@ public class ArrayListHolder <T>{
      * Returns the size of the underlying {@link ArrayList}.
      * @return The number of elements in this List.
      */
+    @JsonIgnore
     public int size(){
         return list.size();
     }
@@ -123,10 +129,12 @@ public class ArrayListHolder <T>{
         return clazz;
     }
 
+    @JsonIgnore
     public boolean isEmpty(){
         return list.isEmpty();
     }
 
+    @JsonIgnore
     public T getFirst(){
         return list.getFirst();
     }
@@ -135,6 +143,7 @@ public class ArrayListHolder <T>{
      * Gets the class.getSimpleName of this list.
      * @return The simple name of the Class.
      */
+    @JsonIgnore
     public String getSimpleName(){
         return clazz.getSimpleName();
     }
