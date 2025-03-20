@@ -11,7 +11,7 @@ import java.util.Map;
 public abstract class DBManager implements AutoCloseable {
 
     // Method for table migrations
-    abstract protected boolean migrateFromOldTables(AbstractMigration tm, DBManagerConfig config);
+    abstract protected boolean migrateFromOldTables(List<AbstractMigration> tm, DBManagerConfig config);
 
     // Borrow Connection
     public abstract Connection borrowConnection(boolean isPrivileged) throws SQLException;

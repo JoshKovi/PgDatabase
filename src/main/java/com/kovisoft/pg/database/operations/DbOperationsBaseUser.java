@@ -1,11 +1,12 @@
 package com.kovisoft.pg.database.operations;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kovisoft.logger.exports.Logger;
 import com.kovisoft.logger.exports.LoggerFactory;
 import com.kovisoft.pg.database.data.SQLRecord;
-import com.kovisoft.pg.database.data.exports.DBManager;
-import com.kovisoft.pg.database.data.exports.DBOperations;
-import com.kovisoft.pg.database.data.exports.SQLConvertType;
+import com.kovisoft.pg.database.data.exports.*;
 import com.kovisoft.simple.connection.pool.exports.ConnectionWrapper;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     protected final Logger logger;
     protected DBManager dbManager;
+    protected ObjectMapper om = new ObjectMapper();
 
     public DbOperationsBaseUser(){
         try{
@@ -233,8 +235,17 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 String fieldName = comp.getName();
                 if(!columnNames.contains(fieldName)) continue;
                 Object fieldValue = record.getObjectValueByFieldName(fieldName);
-                if(fieldValue != null) objList.add(fieldValue);
-                sb.append(fieldName.toLowerCase()).append(" = ? AND ");
+                if(fieldValue != null) {
+                    objList.add(fieldValue);
+                    sb.append(fieldName.toLowerCase());
+                    SQLConvertType sqlConvertType = SQLConvertType.getByClassSimpleName(fieldValue.getClass().getSimpleName(), true);
+                    if(sqlConvertType.isJsonb()){
+                        sb.append(" @> ?::JSONB AND ");
+                    } else {
+                        sb.append(" = ? AND ");
+                    }
+                }
+
             }
             sb.setLength(sb.length() - 4);
             PreparedStatement pStmt = borrowCW().getPreparedStatement(sb.toString());
@@ -244,10 +255,14 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                     pStmt.setString(i+1, objList.get(i).toString());
                 } else if(objClass.isEnum()){
                     pStmt.setInt(i, ((Enum<?>)objList.get(i)).ordinal());
-                } else if(objClass.equals(ArrayList.class)){
-                    // TODO: Make this type agnostic, for now I only use ArrayList<String>
-                    Array array = pStmt.getConnection().createArrayOf("TEXT", ((ArrayList<String>)objList.get(i)).toArray());
-                    pStmt.setArray(i, array);
+                } else if(objClass.equals(ArrayListHolder.class)){
+                    ArrayListHolder<?> arrayListHolder = ((ArrayListHolder<?>)objList.get(i));
+                    String jsonB = om.writeValueAsString(arrayListHolder);
+                    pStmt.setString(i, jsonB);
+                } else if(objClass.equals(HashMapHolder.class)){
+                    HashMapHolder<?, ?> hashMapHolder = ((HashMapHolder<?, ?>)objList.get(i));
+                    String jsonB = om.writeValueAsString(hashMapHolder);
+                    pStmt.setString(i, jsonB);
                 } else {
                     pStmt.setObject(i+1, objList.get(i));
                 }
@@ -505,7 +520,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         return batchMap;
     }
 
-    private Map<String, Object> executeSingleQuery(PreparedStatement pStmt) throws SQLException {
+    private Map<String, Object> executeSingleQuery(PreparedStatement pStmt) throws SQLException, JsonProcessingException, ClassNotFoundException {
         ResultSet rs = pStmt.executeQuery();
         if(!rs.next()) return null;
         ResultSetMetaData md = rs.getMetaData();
@@ -513,20 +528,28 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         return resultToMap(columnCount, md, rs);
     }
 
-    private Map<String, Object> resultToMap(int columnCount, ResultSetMetaData md, ResultSet rs) throws SQLException {
+    private Map<String, Object> resultToMap(int columnCount, ResultSetMetaData md, ResultSet rs) throws SQLException, JsonProcessingException, ClassNotFoundException {
         Map<String, Object> recordData = new HashMap<>();
         for(int i = 1; i <= columnCount; i++){
             String columnName = md.getColumnName(i);
-            int sqlType = md.getColumnType(i);
+            String columnTypeName = md.getColumnTypeName(i);
             Object value;
-            if(sqlType == Types.BIT){ //Should be a boolean
+            if(columnTypeName.equalsIgnoreCase("bool") || columnTypeName.equalsIgnoreCase("boolean")){ //Should be a boolean
                 value = rs.getBoolean(i);
-            } else if(sqlType == Types.ARRAY){
-                if(rs.getArray(i) != null){
-                    ArrayList<String> arrayList = new ArrayList<>();
-                    arrayList.addAll(Arrays.stream((String[])rs.getArray(i).getArray()).toList());
-                    value = arrayList;
-                } else {value = null;}
+            } else if(columnTypeName.equalsIgnoreCase("JSONB")){
+                String json = rs.getString(i);
+                JsonNode rootNode = om.readTree(json);
+                if(rootNode.has("list")){
+                    Class<?> clazz = Class.forName(rootNode.get("clazz").asText());
+                    value = om.readValue(json, om.getTypeFactory().constructParametricType(ArrayListHolder.class, clazz));
+                } else if(rootNode.has("keyType")){
+                    Class<?> keyType = Class.forName(rootNode.get("keyType").asText());
+                    Class<?> valueType = Class.forName(rootNode.get("valueType").asText());
+                    value = om.readValue(json, om.getTypeFactory().constructParametricType(HashMapHolder.class, keyType, valueType));
+                } else {
+                    logger.warn("Unknown JSONB type ignored for column named: " + columnName);
+                    value = null;
+                }
             } else {
                 value = rs.getObject(i);
             }
