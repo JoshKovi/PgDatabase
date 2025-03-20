@@ -7,6 +7,7 @@ import com.kovisoft.pg.database.data.exports.*;
 import com.kovisoft.pg.database.data.exports.SQLConvertType;
 import com.kovisoft.pg.database.operations.DbOperationsAdminUser;
 import com.kovisoft.pg.database.operations.AbstractDbOperations;
+import com.kovisoft.pg.database.operations.DbOperationsBaseUser;
 import com.kovisoft.simple.connection.pool.exports.ConnectionWrapper;
 import com.kovisoft.simple.connection.pool.exports.PoolConfig;
 import com.kovisoft.simple.connection.pool.exports.PoolFactory;
@@ -19,7 +20,8 @@ import java.util.*;
 
 public class DBManagerImpl extends DBManager {
 
-    private ConnectionWrapper cw;
+    private ConnectionWrapper cwCurrent;
+    private ConnectionWrapper cwArchived;
     private static final String F_URL = "jdbc:postgresql://%s:%d/";
     private List<Class<? extends SQLRecord>> recordClasses;
     private final Logger logger;
@@ -51,19 +53,19 @@ public class DBManagerImpl extends DBManager {
         this(config, null);
     }
 
-    public DBManagerImpl(DBManagerConfig config, AbstractMigration tm) throws SQLException, InterruptedException {
+    public DBManagerImpl(DBManagerConfig config, List<AbstractMigration> tms) throws SQLException, InterruptedException {
         try{
             logger = LoggerFactory.createLogger(System.getProperty("user.dir") + "/logs",
                     "DB_Logger");
         } catch (IOException e) {
             throw new RuntimeException("Could not startup the handler logger!", e);
         }
-        initDb(config, tm);
+        initDb(config, tms);
         String url = String.format(F_URL, config.getHost(), config.getPort()) + config.getDb();
         setupAdminConnectionPool(config, url);
         setupUserConnectionPool(config, url);
         // Should be fine without these but better safe than sorry.
-        cw = null;
+        cwCurrent = null;
         isInInit = false;
     }
 
@@ -88,15 +90,20 @@ public class DBManagerImpl extends DBManager {
         adminConnectionPool = PoolFactory.createPgPool(pc, prepMap, constMap);
     }
 
-    private void initDb(DBManagerConfig config, AbstractMigration tm) throws SQLException, InterruptedException {
+    private void initDb(DBManagerConfig config, List<AbstractMigration> tms) throws SQLException, InterruptedException {
         this.isInInit = true;
         Map<Class<? extends SQLRecord>, String> records = config.getRecords();
         recordClasses = new ArrayList<>(records.keySet());
         String connString = String.format(F_URL, config.getHost(), config.getPort());
         if(config.getSuperUser() != null && config.getSuperPass() != null){
+
+            if(config.isMigrate() && tms != null && !tms.isEmpty()){
+                moveTables(tms, config);
+            }
+
             // Create DB and then ConnectionWrapper
-            createDBIfAbsent(connString + "postgres", config);
-            cw = PoolFactory.createSingleConnectionWrapper(connString + config.getDb(),
+            createDBIfAbsent(connString + "postgres", config, config.getDb());
+            cwCurrent = PoolFactory.createSingleConnectionWrapper(connString + config.getDb(),
                     config.getSuperUser(), config.getSuperPass());
 
             // Add rolls
@@ -105,8 +112,9 @@ public class DBManagerImpl extends DBManager {
 
             // Create Tables with default privileges for user
             destructiveColumns = config.isDestructiveColumns();
+
             createTablesFromRecords();
-            // Grant admin privileges on all tables
+            // Grant privileges on all tables
             for(Class<? extends SQLRecord> recordClass : recordClasses){
                 String recordString = recordClass.getSimpleName().toLowerCase();
                 String privString = records.getOrDefault(recordClass, DEFAULT_PRIVILEGES);
@@ -116,11 +124,12 @@ public class DBManagerImpl extends DBManager {
             }
 
             // If necessary trigger migration of tables and data
-            if(config.isMigrate() && tm != null){
-                migrateFromOldTables(tm, config);
+            if(config.isMigrate() && tms != null && !tms.isEmpty()){
+                if(!migrateFromOldTables(tms, config)) throw new RuntimeException("Migration failed during conversion of data");
             }
             try{
-                cw.close();
+                cwCurrent.close();
+                cwArchived.close();
             } catch (Exception e){
                 logger.except("Exception occured while attempting to close init Connection Wrapper!", e);
             }
@@ -133,78 +142,111 @@ public class DBManagerImpl extends DBManager {
         isInInit = false;
     }
 
+    /**
+     * This is destructive move. If the tables are moved successfully the last action
+     * is dropping all the tables in the database. This allows the tables to be created
+     * in the event that a table columns type changed but the name did not.
+     * If the migration fails this migration is in jeopardy so, you <u>SHOULD</u> exception out.
+     *
+     * @param tms    The table migrations to do, each migration should encompass the entire
+     *               database for which the migration is occuring.
+     * @param config The Database config
+     * @throws RuntimeException Should not be caught, this should kill the application
+     *                          as it's likely the migration of tables failed spectacularly... Sorry.
+     */
+    public void moveTables(List<AbstractMigration> tms, DBManagerConfig config) throws RuntimeException{
+        String terminateConnectionsBase = "SELECT pg_terminate_backend(pg_stat_activity.pid)"
+                + " FROM pg_stat_activity WHERE pg_stat_activity.datname = '";
+        String connString = String.format(F_URL, config.getHost(), config.getPort());
+        for(AbstractMigration tm : tms){
+            String terminateArchive = terminateConnectionsBase + tm.getArchiveDB() + "';";
+            String terminateCurrent = terminateConnectionsBase + tm.getCurrentDB() + "';";
+            String dropArchive = "DROP DATABASE " + tm.getArchiveDB() + ";";
+            String dbExists = "SELECT 1 FROM pg_database WHERE datname = '" + tm.getArchiveDB() + "';";
+            String archiveCurrent = "CREATE DATABASE " + tm.getArchiveDB() + " WITH TEMPLATE " + tm.getCurrentDB() + " OWNER " + config.getAdminUser();
+            String dropCurrentDatabase = "DROP DATABASE " + tm.getCurrentDB() + ";";
+
+            try(Connection con = DriverManager.getConnection(connString + "postgres", config.getSuperUser(), config.getSuperPass())){
+                // First section is backing up the database to an archive.
+                Statement statement = con.createStatement();
+                ResultSet rs = statement.executeQuery(dbExists);
+                if(rs.next() && rs.getBoolean(1)){
+                    statement.execute(terminateArchive);
+                    statement.execute(dropArchive);
+                }
+                statement.execute(terminateCurrent);
+                statement.execute(archiveCurrent);
+                statement.execute(dropCurrentDatabase);
+                createDBIfAbsent(connString + "postgres", config, tm.getCurrentDB());
+                return;
+            } catch (SQLException | InterruptedException e) {
+                throw new RuntimeException("TABLE MOVES FAILED, DO NOT RUN AGAIN UNTIL YOU VERIFY ALL DATA IS IN THE PROPER LOCATION",e);
+            }
+        }
+    }
+
 
 
     @Override
-    protected boolean migrateFromOldTables(AbstractMigration tm, DBManagerConfig config) {
-        String terminateConnectionsBase = "SELECT pg_terminate_backend(pg_stat_activity.pid)"
-                + " FROM pg_stat_activity WHERE pg_stat_activity.datname = '";
-        String terminateArchive = terminateConnectionsBase + tm.getArchiveDB() + "';";
-        String terminateCurrent = terminateConnectionsBase + tm.getCurrentDB() + "';";
-        String dropArchive = "DROP DATABASE " + tm.getArchiveDB() + ";";
-        String dbExists = "SELECT 1 FROM pg_database WHERE datname = '" + tm.getArchiveDB() + "';";
-        String archiveCurrent = "CREATE DATABASE " + tm.getArchiveDB() + " WITH TEMPLATE " + tm.getCurrentDB() + " OWNER " + config.getAdminUser();
+    protected boolean migrateFromOldTables(List<AbstractMigration> tms, DBManagerConfig config) {
         String connString = String.format(F_URL, config.getHost(), config.getPort());
-
         boolean withoutError = true;
-        // First section is backing up the database to an archive.
-        try (Connection con = DriverManager.getConnection(connString + "postgres", config.getSuperUser(), config.getSuperPass())){
+        for(AbstractMigration tm : tms) {
             // First section is backing up the database to an archive.
-            Statement statement = con.createStatement();
-            ResultSet rs = statement.executeQuery(dbExists);
-            if(rs.next() && rs.getBoolean(1)){
-                statement.execute(terminateArchive);
-                statement.execute(dropArchive);
-            }
-            statement.execute(terminateCurrent);
-            statement.execute(archiveCurrent);
+            try {
+                cwCurrent = PoolFactory.createSingleConnectionWrapper(connString + tm.getCurrentDB(),
+                        config.getSuperUser(), config.getSuperPass());
+                cwCurrent.addPreparedStatements(prepMap, constMap);
 
-            cw = PoolFactory.createSingleConnectionWrapper(connString + config.getDb(),
-                    config.getSuperUser(), config.getSuperPass());
-            cw.addPreparedStatements(prepMap, constMap);
+                cwArchived = PoolFactory.createSingleConnectionWrapper(connString + tm.getArchiveDB(),
+                        config.getSuperUser(), config.getSuperPass());
+                cwArchived.addPreparedStatements(prepMap, constMap);
 
+                // The archive user only needs read access at this point so non-privileged use
+                // is a great differentiator for the borrow connection calls.
+                DBOperations current = new DbOperationsAdminUser(this);
+                DBOperations archive = new DbOperationsBaseUser(this);
 
-            //Now we grab the relevant data
-            DBOperations admin = new DbOperationsAdminUser(this);
-            Map<String, SQLRecord> migrationMap = tm.getMigrationMap();
-            for(Map.Entry<String, SQLRecord> migrant : migrationMap.entrySet()){
-                String className = migrant.getValue().getClass().getSimpleName().toLowerCase();
-                // Check the amount of entries on the table prior to migrating any new data.
-                List<? extends SQLRecord> newTableEntries = admin.getAllEntries(migrant.getValue().getClass());
-                int newTableCount = (newTableEntries == null) ? 0 : newTableEntries.size();
+                Map<String, SQLRecord> migrationMap = tm.getMigrationMap();
+                for(Map.Entry<String, SQLRecord> migrant : migrationMap.entrySet()){
+                    String className = migrant.getValue().getClass().getSimpleName().toLowerCase();
+                    // Check the amount of entries on the table prior to migrating any new data.
+                    // It should be zero but check anyway.
+                    List<? extends SQLRecord> newTableEntries = current.getAllEntries(migrant.getValue().getClass());
+                    int newTableCount = (newTableEntries == null) ? 0 : newTableEntries.size();
 
-                //Get the data from the old table remove duplicates.
-                List<Map<String, Object>> oldTableEntries = admin.getAllEntriesAsMaps(migrant.getKey());
-                if(oldTableEntries == null || oldTableEntries.isEmpty()) continue;
+                    //Get the data from the old table remove duplicates.
+                    List<Map<String, Object>> oldTableEntries = archive.getAllEntriesAsMaps(migrant.getKey());
+                    if(oldTableEntries == null || oldTableEntries.isEmpty()) continue;
 
-                // Old table has entries, convert them to objects (Checked for duplicates in convertEntries
-                List<? extends SQLRecord> converted =  convertEntries(oldTableEntries, migrant.getValue(), newTableEntries);
+                    // Old table has entries, convert them to objects (Checked for duplicates in convertEntries
+                    List<? extends SQLRecord> converted =  convertEntries(oldTableEntries, migrant.getValue(), newTableEntries);
 
-                // Insert those new objects in new table
-                admin.batchRequestsNoReturn(converted, prepMap.get(className + AbstractDbOperations.INSERT_MANY), false);
+                    // Insert those new objects in new table
+                    current.batchRequestsNoReturn(converted, prepMap.get(className + AbstractDbOperations.INSERT_MANY), false);
 
-                //Retrieve the new table with all entries
-                List<Map<String, Object>> getAllNewRecords = admin.getAllEntriesAsMaps(className);
+                    //Retrieve the new table with all entries
+                    List<Map<String, Object>> getAllNewRecords = current.getAllEntriesAsMaps(className);
 
-                int totalEntries = (getAllNewRecords == null) ? 0 : getAllNewRecords.size();
+                    int totalEntries = (getAllNewRecords == null) ? 0 : getAllNewRecords.size();
 
-                //If the new table has all the expected values we should be good from an entry count standpoint
-                if(totalEntries - newTableCount == converted.size()){
-                    logger.log("It appears that all entries are in order on the new table: "
-                            + migrant.getValue().getClass().getSimpleName());
-                } else {
-                    logger.warn("It appears that the number of entries added does not match the number of entries retrieved! table: "
-                            + migrant.getValue().getClass().getSimpleName());
-                    withoutError = false;
+                    //If the new table has all the expected values we should be good from an entry count standpoint
+                    if(totalEntries - newTableCount == converted.size()){
+                        logger.log("It appears that all entries are in order on the new table: "
+                                + migrant.getValue().getClass().getSimpleName());
+                    } else {
+                        logger.warn("It appears that the number of entries added does not match the number of entries retrieved! table: "
+                                + migrant.getValue().getClass().getSimpleName());
+                        withoutError = false;
+                    }
                 }
+            } catch (SQLException e) {
+                // Take care to make sure this is not swallowed. This exception should exit the application.
+                logger.except("Exception occurred during database backup operations... Bailing!", e);
+                throw new RuntimeException(e);
             }
-            return withoutError;
-        } catch (SQLException e) {
-            // Take care to make sure this is not swallowed. This exception should exit the application.
-            logger.except("Exception occurred during database backup operations... Bailing!", e);
-            throw new RuntimeException(e);
         }
-
+        return withoutError;
     }
 
     // Inherited public Methods from AbstractDBManager
@@ -216,8 +258,12 @@ public class DBManagerImpl extends DBManager {
             count++;
             try{
                 if(isInInit && isPrivileged){
-                    Connection conn = cw.borrowConnection();
-                    cw.release();
+                    Connection conn = cwCurrent.borrowConnection();
+                    cwCurrent.release();
+                    return conn;
+                }  else if (isInInit){
+                    Connection conn = cwArchived.borrowConnection();
+                    cwArchived.release();
                     return conn;
                 } else if (isPrivileged){
                     return adminConnectionPool.borrowConnection().borrowConnection();
@@ -246,8 +292,11 @@ public class DBManagerImpl extends DBManager {
             count++;
             try{
                 if(isInInit && isPrivileged){
-                    cw.release();
-                    return cw;
+                    cwCurrent.release();
+                    return cwCurrent;
+                } else if (isInInit){
+                    cwArchived.release();
+                    return cwArchived;
                 } else if (isPrivileged){
                     return adminConnectionPool.borrowConnection();
                 } else {
@@ -287,17 +336,17 @@ public class DBManagerImpl extends DBManager {
     }
 
     @Override
-    protected void createDBIfAbsent(String url, DBManagerConfig config) throws SQLException, InterruptedException {
+    protected void createDBIfAbsent(String url, DBManagerConfig config, String dbName) throws SQLException, InterruptedException {
         try(Connection con = DriverManager.getConnection(url, config.getSuperUser(), config.getSuperPass());
             PreparedStatement stmt = con.prepareStatement("SELECT 1 FROM pg_database WHERE datname = ?");
-            PreparedStatement cStmt = con.prepareStatement("CREATE DATABASE ?")){
-            stmt.setString(1, config.getDb());
+            Statement cStmt = con.createStatement()){
+
+            stmt.setString(1, dbName);
             ResultSet rs = stmt.executeQuery();
             if(rs.next()){logger.log("Database exists already!");}
             else{
                 logger.log("Database needs to be created...");
-                cStmt.setString(1, config.getDb());
-                cStmt.executeUpdate();
+                cStmt.executeUpdate("CREATE DATABASE " + dbName);
                 Thread.sleep(3000); // Helps give some space for follow-up operations
             }
         }
@@ -471,7 +520,7 @@ public class DBManagerImpl extends DBManager {
             }
 
             //The risk here is in the unchecked cast typical of the creation of the object based off the map.
-            //That being said its a rick worth taking. Swallowing the exception is fine here after logging
+            //That being said it is a risk worth taking. Swallowing the exception is fine here after logging
             //as its possible that the other objects will succeed and only a handful need to have additional
             //considerations made.
             try{
@@ -540,6 +589,7 @@ public class DBManagerImpl extends DBManager {
         }
         createSB.append("id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ");
         StringBuilder insertSB = new StringBuilder("INSERT INTO ").append(tableName).append("(");
+        StringBuilder insertValuesSB = new StringBuilder(") VALUES (");
         StringBuilder  updateSB = new StringBuilder("UPDATE ").append(tableName).append(" SET ");
         StringBuilder matchSB = new StringBuilder("SELECT * FROM ").append(tableName).append(" WHERE ");
         for(int i = 1; i < comps.length; i++){
@@ -548,20 +598,39 @@ public class DBManagerImpl extends DBManager {
             //Table create
             String className = (classType.isEnum()) ? Integer.class.getSimpleName() : classType.getSimpleName();
             SQLConvertType sqlType = SQLConvertType.getByClassSimpleName(className);
+
             if(sqlType == null) throw new SQLException(String.format("Unsupported type of %s in table %s creation statement!",
                     className, tableName));
+            boolean isJsonB = sqlType.isJsonb();
+
             createSB.append(fieldName).append(" ").append(sqlType.SQL_TYPE).append(", ");
             //Insert Record
             insertSB.append(fieldName).append(", ");
+            if(isJsonB){
+                insertValuesSB.append("?::jsonb,");
+            } else {
+                insertValuesSB.append("?, ");
+            }
             //Update Record
-            updateSB.append(fieldName).append(" = ?, ");
+            updateSB.append(fieldName).append(" = ?");
+            if(isJsonB){
+                updateSB.append("::JSONB, ");
+            } else {
+                updateSB.append(", ");
+            }
             //Match Record
-            matchSB.append(fieldName).append(" = ? AND ");
+            matchSB.append(fieldName);
+            if(isJsonB){
+                matchSB.append("@> ?::JSONB AND ");
+            } else {
+                matchSB.append(" = ? AND ");
+            }
         }
 
         insertSB.setLength(insertSB.length() - 2);
-        insertSB.append(") VALUES (")
-                .append(String.join(", ", Collections.nCopies(comps.length - 1, "?"))).append(")");
+        insertSB.append(insertValuesSB);
+        insertSB.setLength(insertSB.length() - 2);
+        insertSB.append(")");
         prepMap.put(tableName + AbstractDbOperations.INSERT_MANY, insertSB.toString() +";");
         constMap.put(tableName + AbstractDbOperations.INSERT_MANY, Statement.RETURN_GENERATED_KEYS);
         prepMap.put(tableName + AbstractDbOperations.INSERT, insertSB.append(" RETURNING *;").toString());

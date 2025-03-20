@@ -11,7 +11,7 @@ import java.util.Map;
 public abstract class DBManager implements AutoCloseable {
 
     // Method for table migrations
-    abstract protected boolean migrateFromOldTables(AbstractMigration tm, DBManagerConfig config);
+    abstract protected boolean migrateFromOldTables(List<AbstractMigration> tm, DBManagerConfig config);
 
     // Borrow Connection
     public abstract Connection borrowConnection(boolean isPrivileged) throws SQLException;
@@ -21,7 +21,7 @@ public abstract class DBManager implements AutoCloseable {
     abstract public List<Class<? extends SQLRecord>> getRecordClasses();
 
     //Primary DB build methods, this is more organizational help than part of the interface for the moment.
-    abstract protected void createDBIfAbsent(String url, DBManagerConfig config) throws SQLException, InterruptedException;
+    abstract protected void createDBIfAbsent(String url, DBManagerConfig config, String dbName) throws SQLException, InterruptedException;
     abstract protected void addRole(String user, String pass) throws SQLException;
 
     abstract protected void createTablesFromRecords() throws SQLException;
