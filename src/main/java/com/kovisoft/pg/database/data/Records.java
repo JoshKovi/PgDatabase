@@ -20,12 +20,14 @@ public class Records {
     public static Long getLongOrNull(Object longObj){
         if(longObj == null) return null;
         if(longObj instanceof Long) return (Long) longObj;
+        if(longObj instanceof Integer) return Long.parseLong(longObj.toString());
         return Long.parseLong((String)longObj);
     }
 
     public static Float getFloatOrNull(Object floatObj){
         if(floatObj == null) return null;
         if(floatObj instanceof Float) return (Float) floatObj;
+        if(floatObj instanceof Integer) return Float.parseFloat(floatObj.toString());
         return Float.parseFloat((String)floatObj);
     }
 
