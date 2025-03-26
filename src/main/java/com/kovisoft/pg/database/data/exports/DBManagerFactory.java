@@ -77,13 +77,8 @@ public class DBManagerFactory {
      *           {@link CombinedMigration} which could result in conflicts if not managed carefully.
      */
     public static void overallSetupDB(DBManagerConfig config, Map<String, List<AbstractMigration>> migrations) throws SQLException, InterruptedException {
-        List<AbstractMigration> cms = new ArrayList<>();
-        for(Map.Entry<String, List<AbstractMigration>> tm : migrations.entrySet()){
-            if(tm == null || tm.getValue().isEmpty()) continue;
-            AbstractMigration first = tm.getValue().getFirst();
-            CombinedMigration cm = new CombinedMigration(first.getArchiveDB(), first.getCurrentDB(), tm.getValue());
-            cms.add(cm);
-        }
+        List<AbstractMigration> cms = getCombinedMigrations(migrations);
+
         DBManager manager = new DBManagerImpl(config, cms);
         MANAGER_MAP.put(config.getDb(), manager);
         DBOperations admin = new DbOperationsAdminUser(manager);
@@ -92,6 +87,18 @@ public class DBManagerFactory {
         OPERATIONS_MAP.put(config.getDb() + "-user", user);
     }
 
+    private static List<AbstractMigration> getCombinedMigrations(Map<String, List<AbstractMigration>> migrations) {
+        List<AbstractMigration> cms = new ArrayList<>();
+        if(migrations != null && !migrations.isEmpty()){
+            for(Map.Entry<String, List<AbstractMigration>> tm : migrations.entrySet()){
+                if(tm == null || tm.getValue().isEmpty()) continue;
+                AbstractMigration first = tm.getValue().getFirst();
+                CombinedMigration cm = new CombinedMigration(first.getArchiveDB(), first.getCurrentDB(), tm.getValue());
+                cms.add(cm);
+            }
+        }
+        return cms;
+    }
 
 
 }

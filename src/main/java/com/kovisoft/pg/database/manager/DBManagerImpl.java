@@ -581,13 +581,13 @@ public class DBManagerImpl extends DBManager {
             logger.error("Could not prepare statements for Record Class: " + recordClass + " as there are no components.");
             return null;
         }
-
+        String primaryKey = comps[0].getName().toLowerCase();;
         StringBuilder createSB = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" ( ");
-        if(!comps[0].getName().equals("id")){
-            logger.error("This DBManager Implementation requires id to be the first element in a record");
+        if(!comps[0].getType().getSimpleName().equalsIgnoreCase("Long")){
+            logger.error("This DBManager Implementation requires primary key to be a long and to be the first element in a record");
             throw new RuntimeException("Could not generate prepared statements for Record Class: " + recordClass);
         }
-        createSB.append("id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ");
+        createSB.append(primaryKey).append(" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ");
         StringBuilder insertSB = new StringBuilder("INSERT INTO ").append(tableName).append("(");
         StringBuilder insertValuesSB = new StringBuilder(") VALUES (");
         StringBuilder  updateSB = new StringBuilder("UPDATE ").append(tableName).append(" SET ");
@@ -636,15 +636,15 @@ public class DBManagerImpl extends DBManager {
         prepMap.put(tableName + AbstractDbOperations.INSERT, insertSB.append(" RETURNING *;").toString());
 
         updateSB.setLength(updateSB.length() - 2);
-        updateSB.append(" WHERE id = ?");
+        updateSB.append(" WHERE ").append(primaryKey).append(" = ?");
         prepMap.put(tableName + AbstractDbOperations.UPDATE_MANY, updateSB.toString() +";");
         prepMap.put(tableName + AbstractDbOperations.UPDATE, updateSB.append(" RETURNING *;").toString());
 
-        matchSB.append("id = ?");
+        matchSB.append(primaryKey).append(" = ?");
         prepMap.put(tableName + AbstractDbOperations.MATCH, matchSB.toString());
 
         //Get Record by ID
-        prepMap.put(tableName + AbstractDbOperations.ID, "SELECT * FROM " + tableName + " WHERE id = ?" + ";");
+        prepMap.put(tableName + AbstractDbOperations.PRIMARY_KEY, "SELECT * FROM " + tableName + " WHERE " + primaryKey + " = ?" + ";");
 
         //Get All Records
         String allBase = "SELECT * FROM " + tableName;
@@ -655,7 +655,7 @@ public class DBManagerImpl extends DBManager {
         prepMap.put(tableName + AbstractDbOperations.ALL_LIMIT_START_ORDER_ASC, allBase + " ORDER BY ? ASC OFFSET ? LIMIT ?;");
 
         //Delete Record by ID
-        prepMap.put(tableName + AbstractDbOperations.DELETE, "DELETE FROM " + tableName + " WHERE id = ? RETURNING *" + ";");
+        prepMap.put(tableName + AbstractDbOperations.DELETE, "DELETE FROM " + tableName + " WHERE " + primaryKey + " = ? RETURNING *" + ";");
 
         createSB.setLength(createSB.length() - 2);
         createSB.append(" );");

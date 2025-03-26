@@ -80,14 +80,14 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             for(Map.Entry<Class<T>, PreparedStatement> entry : batchMap.entrySet()){
                 try{
                     ResultSet rs = entry.getValue().getGeneratedKeys();
-                    if(!rs.next()) throw new SQLException("Unable to retrieve inserted ids from execution on " + entry.getKey().getSimpleName());
+                    if(!rs.next()) throw new SQLException("Unable to retrieve inserted primaryKeys from execution on " + entry.getKey().getSimpleName());
                     List<Long> generatedIds = new ArrayList<>();
                     do{
                         generatedIds.add(rs.getLong(1));
                     } while(rs.next());
                     return getRecordsByIds(generatedIds, entry.getKey());
                 } catch (Exception e){
-                    logger.except("Exception occurred during retrieval of generated ids for: " + entry.getKey().getSimpleName(), e);
+                    logger.except("Exception occurred during retrieval of generated primaryKeys for: " + entry.getKey().getSimpleName(), e);
                 }
             }
         } catch (SQLException e) {
@@ -120,9 +120,9 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             connection.setAutoCommit(true);
             for(Map.Entry<Class<T>, PreparedStatement> entry : batchMap.entrySet()){
                 try{
-                    return getRecordsByIds(records.stream().map(SQLRecord::id).toList(), (Class<T>) records.getFirst().getClass());
+                    return getRecordsByIds(records.stream().map(SQLRecord::getPrimaryKey).toList(), (Class<T>) records.getFirst().getClass());
                 } catch (Exception e){
-                    logger.except("Exception occurred during retrieval of generated ids for: " + entry.getKey().getSimpleName(), e);
+                    logger.except("Exception occurred during retrieval of generated primaryKeys for: " + entry.getKey().getSimpleName(), e);
                 }
             }
         } catch (SQLException e) {
@@ -133,13 +133,13 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends SQLRecord> T updateOrAddRecord(T record) {
-        return ((record.id() == null) ? addRecord(record) : updateRecord(record));
+        return ((record.getPrimaryKey() == null) ? addRecord(record) : updateRecord(record));
     }
 
     @Override
     public <T extends SQLRecord> List<T> updateAndAddRecords(List<T> records) {
-        List<T> inserts = records.stream().filter(record -> record.id() == null).toList();
-        List<T> updates = records.stream().filter(record -> record.id() != null).toList();
+        List<T> inserts = records.stream().filter(record -> record.getPrimaryKey() == null).toList();
+        List<T> updates = records.stream().filter(record -> record.getPrimaryKey() != null).toList();
         List<T> returns = new ArrayList<>(records.size());
         returns.addAll(addRecords(inserts));
         returns.addAll(updateRecords(updates));
@@ -159,65 +159,67 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     @Override
-    public <T extends SQLRecord> T  getRecordById(Long id, T record) {
+    public <T extends SQLRecord> T  getRecordById(Long primaryKey, T record) {
         try {
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + ID);
-            pStmt.setLong(1, id);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + PRIMARY_KEY);
+            pStmt.setLong(1, primaryKey);
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e){
-            logger.except("Get record by id failed with exception", e);
+            logger.except("Get record by primaryKey failed with exception", e);
         }
         return null;
     }
 
     @Override
-    public <T extends SQLRecord> T  getRecordById(Long id, Class<T> recordClass) {
+    public <T extends SQLRecord> T  getRecordById(Long primaryKey, Class<T> recordClass) {
         try {
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(recordClass.getSimpleName().toLowerCase() + ID);
-            pStmt.setLong(1, id);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(recordClass.getSimpleName().toLowerCase() + PRIMARY_KEY);
+            pStmt.setLong(1, primaryKey);
             Map<String, Object> objMap = executeSingleQuery(pStmt);
-            return reflectRecordFromMap(id, objMap, recordClass);
+            return reflectRecordFromMap(primaryKey, objMap, recordClass);
         } catch (Exception e){
-            logger.except("Get record by id failed with exception", e);
+            logger.except("Get record by primaryKey failed with exception", e);
         }
         return null;
     }
 
     @Override
-    public <T extends SQLRecord> T  getRecordById(Long id, String tableName) {
+    public <T extends SQLRecord> T  getRecordById(Long primaryKey, String tableName) {
         try {
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(tableName.toLowerCase() + ID);
-            pStmt.setLong(1, id);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(tableName.toLowerCase() + PRIMARY_KEY);
+            pStmt.setLong(1, primaryKey);
             Map<String, Object> objMap = executeSingleQuery(pStmt);
             Optional<Class<? extends SQLRecord>> recordClass = dbManager.getRecordClasses().stream()
                     .filter(clazz -> clazz.getSimpleName().equalsIgnoreCase(tableName)).findFirst();
             if(recordClass.isEmpty()) throw new IllegalArgumentException("No class matches the table! " + tableName);
-            return reflectRecordFromMap(id, objMap, (Class<T>) recordClass.get());
+            return reflectRecordFromMap(primaryKey, objMap, (Class<T>) recordClass.get());
         } catch (Exception e){
-            logger.except("Get record by id failed with exception", e);
+            logger.except("Get record by primaryKey failed with exception", e);
         }
         return null;
     }
 
     @Override
-    public <T extends SQLRecord> List<T> getRecordsByIds(List<Long> ids, Class<T> recordClass) {
-        List<Long> nonNullIds = ids.stream().filter(Objects::nonNull).toList();
+    public <T extends SQLRecord> List<T> getRecordsByIds(List<Long> primaryKeys, Class<T> recordClass) {
+        List<Long> nonNullPrimaryKeys = primaryKeys.stream().filter(Objects::nonNull).toList();
         StringBuilder sb = new StringBuilder("SELECT * FROM ").append(recordClass.getSimpleName().toLowerCase());
-        sb.append(" WHERE id IN (").append(String.join(",", Collections.nCopies(nonNullIds.size(), "?"))).append(");");
+        String primaryKeyName = recordClass.getRecordComponents()[0].getName().toLowerCase();;
+        sb.append(" WHERE ").append(primaryKeyName).append(" IN (")
+                .append(String.join(",", Collections.nCopies(nonNullPrimaryKeys.size(), "?"))).append(");");
         try(PreparedStatement pStmt = borrowConnection().prepareStatement(sb.toString())){
-            for(int i = 0; i < nonNullIds.size(); i++){
-                pStmt.setLong(i+1, nonNullIds.get(i));
+            for(int i = 0; i < nonNullPrimaryKeys.size(); i++){
+                pStmt.setLong(i+1, nonNullPrimaryKeys.get(i));
             }
             ResultSet rs = pStmt.executeQuery();
             List<Map<String, Object>> objMaps = processQueryResultSet(rs);
             if(objMaps == null){
-                logger.error("Really not one correct id? You fucking donkey!");
+                logger.error("Really not one correct primaryKey? You fucking donkey!");
                 return List.of();
             }
 
             return reflectRecordsFromMaps(objMaps, recordClass);
         } catch (Exception e) {
-            logger.except("Failed to get records by IDs for Table: " + recordClass.getSimpleName(), e);
+            logger.except("Failed to get records by primaryKeys for Table: " + recordClass.getSimpleName(), e);
         }
         return List.of();
     }
@@ -384,32 +386,32 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends SQLRecord> T deleteById(T record) {
-        if(record.id() == null){
-            logger.error("Passed record had a null id, we cannot delete that which does not exist.");
+        if(record.getPrimaryKey() == null){
+            logger.error("Passed record had a null primaryKey, we cannot delete that which does not exist.");
             return null;
         }
         try{
             PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + DELETE);
-            pStmt.setLong(1, record.id());
+            pStmt.setLong(1, record.getPrimaryKey());
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e) {
-            logger.except(String.format("Failed to delete record %d from table: %s", record.id(), record.getClass().getSimpleName()), e);
+            logger.except(String.format("Failed to delete record %d from table: %s", record.getPrimaryKey(), record.getClass().getSimpleName()), e);
         }
         return null;
     }
 
     @Override
-    public <T extends SQLRecord> T deleteById(Long id, Class<T> recordClass) {
-        if(id == null){
-            logger.error("Passed a null id, we cannot delete that which does not exist.");
+    public <T extends SQLRecord> T deleteById(Long primaryKey, Class<T> recordClass) {
+        if(primaryKey == null){
+            logger.error("Passed a null primaryKey, we cannot delete that which does not exist.");
             return null;
         }
         try{
             PreparedStatement pStmt = borrowCW().getPreparedStatement(recordClass.getSimpleName().toLowerCase() + DELETE);
-            pStmt.setLong(1, id);
-            return (T) reflectRecordFromMap(id, executeSingleQuery(pStmt), recordClass);
+            pStmt.setLong(1, primaryKey);
+            return reflectRecordFromMap(primaryKey, executeSingleQuery(pStmt), recordClass);
         } catch (Exception e) {
-            logger.except(String.format("Failed to delete record %d from table: %s", id, recordClass.getSimpleName()), e);
+            logger.except(String.format("Failed to delete record %d from table: %s", primaryKey, recordClass.getSimpleName()), e);
         }
         return null;
     }
@@ -418,38 +420,39 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     public <T extends SQLRecord> List<T> deleteByIds(List<T> records) {
         if(records == null || records.isEmpty()) return List.of();
         Class<? extends SQLRecord> recordClass = records.getFirst().getClass();
-        List<Long> nonNullIds = records.stream()
+        List<Long> nonNullPrimaryKeys = records.stream()
                 .filter(Objects::nonNull)
                 .filter(obj -> obj.getClass() == recordClass)
-                .map(SQLRecord::id).filter(Objects::nonNull).toList();
-        if(nonNullIds.isEmpty()){
+                .map(SQLRecord::getPrimaryKey).filter(Objects::nonNull).toList();
+        if(nonNullPrimaryKeys.isEmpty()){
             logger.error("There seems to be no records that could be deleted here!");
             return List.of();
         }
-        return deleteByIds(nonNullIds, (Class<T>)recordClass);
+        return deleteByIds(nonNullPrimaryKeys, (Class<T>)recordClass);
     }
 
     @Override
-    public <T extends SQLRecord> List<T> deleteByIds(List<Long> ids, Class<T> recordClass) {
-        List<Long> nonNullIds = ids.stream()
+    public <T extends SQLRecord> List<T> deleteByIds(List<Long> primaryKeys, Class<T> recordClass) {
+        List<Long> nonNullPrimaryKeys = primaryKeys.stream()
                 .filter(Objects::nonNull).toList();
-        if(nonNullIds.isEmpty()){
+        if(nonNullPrimaryKeys.isEmpty()){
             logger.error("There seems to be no records that could be deleted here!");
             return List.of();
         }
+        String primaryKeyName = recordClass.getRecordComponents()[0].getName().toLowerCase();
         StringBuilder sb = new StringBuilder("DELETE FROM ").append(recordClass.getSimpleName().toLowerCase());
-        sb.append(" WHERE id IN (").append(String.join(",", Collections.nCopies(nonNullIds.size(), "?"))).append(");");
+        sb.append(" WHERE ").append(primaryKeyName).append(" IN (").append(String.join(",", Collections.nCopies(nonNullPrimaryKeys.size(), "?"))).append(");");
         try(PreparedStatement pStmt = borrowConnection().prepareStatement(sb.toString())){
             //Cheeky, but it beats implementing a way to retrieve a list of deleted objects from psql
             // as I'm pretty sure RETURNING * will fail here (though to be fair I only read that, not tested).
-            List<T> toBeDeleted = getRecordsByIds(nonNullIds, recordClass);
-            for(int i = 0; i < nonNullIds.size(); i++){
-                pStmt.setLong(i+1, nonNullIds.get(i));
+            List<T> toBeDeleted = getRecordsByIds(nonNullPrimaryKeys, recordClass);
+            for(int i = 0; i < nonNullPrimaryKeys.size(); i++){
+                pStmt.setLong(i+1, nonNullPrimaryKeys.get(i));
             }
             pStmt.executeUpdate();
-            List<T> areRemaining = getRecordsByIds(nonNullIds, recordClass);
+            List<T> areRemaining = getRecordsByIds(nonNullPrimaryKeys, recordClass);
             if (!areRemaining.isEmpty()) {
-                logger.error("Some of the ids failed to delete!");
+                logger.error("Some of the primaryKeys failed to delete!");
                 toBeDeleted.removeAll(areRemaining);
             }
             return toBeDeleted;
@@ -460,14 +463,14 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     @Override
-    public <T extends SQLRecord> List<T> deleteByIds(List<Long> ids, String tableName) {
+    public <T extends SQLRecord> List<T> deleteByIds(List<Long> primaryKeys, String tableName) {
         Optional<Class<? extends SQLRecord>> recordClass = dbManager.getRecordClasses().stream()
                 .filter(clazz -> clazz.getSimpleName().equalsIgnoreCase(tableName)).findFirst();
         if(recordClass.isEmpty()) {
             logger.error("Could not find a record class that matched that table name: " + tableName);
             return List.of();
         }
-        deleteByIds(ids, recordClass.get());
+        deleteByIds(primaryKeys, recordClass.get());
         return null;
     }
 
@@ -599,17 +602,17 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     /**
      * This is used to reflect an object map where the keys are already .lowerCase() processed
      * to create a record of the input type.
-     * @param id This can be null, purely for logging, otherwise it is not used.
+     * @param primaryKey This can be null, purely for logging, otherwise it is not used.
      * @param objMap The object map, based off the return of executeSingleQuery(PreparedStatement)
      * @param recordClass The class to reflect the constructor of... this might be dicey.
      * @return A newly constructed implemented SQLMethod, or null;
      * @throws Exception So many, just assume it failed and you need to read the logs.
      */
-    private <T extends SQLRecord> T reflectRecordFromMap(Long id, Map<String, Object> objMap, Class<T> recordClass) throws Exception {
+    private <T extends SQLRecord> T reflectRecordFromMap(Long primaryKey, Map<String, Object> objMap, Class<T> recordClass) throws Exception {
         if(objMap == null) {
             logger.error(String.format(
-                    "No object was returned for id: %d on table: %s, ignore this if id may have been invalid.",
-                    id, recordClass.getSimpleName()));
+                    "No object was returned for primaryKey: %d on table: %s, ignore this if primaryKey may have been invalid.",
+                    primaryKey, recordClass.getSimpleName()));
             return null;
         }
 
