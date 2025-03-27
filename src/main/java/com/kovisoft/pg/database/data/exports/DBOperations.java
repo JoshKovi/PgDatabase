@@ -1,6 +1,7 @@
 package com.kovisoft.pg.database.data.exports;
 
 
+import com.kovisoft.pg.database.data.CompoundSQLRecordClass;
 import com.kovisoft.pg.database.data.SQLRecord;
 
 import java.lang.reflect.RecordComponent;
@@ -14,19 +15,31 @@ public interface DBOperations {
     //primary DB operations (pass through to SQL methods preferred over getting connection).
     <T extends SQLRecord> T addRecord(T record);
     <T extends SQLRecord> List<T> addRecords(List<T> records);
+    <T extends CompoundSQLRecordClass> T addCompoundRecord(T record);
+    <T extends CompoundSQLRecordClass> List<T> addCompoundRecords(List<T> records);
 
     <T extends SQLRecord> T updateRecord(T record);
     <T extends SQLRecord> List<T> updateRecords(List<T> records);
+    <T extends CompoundSQLRecordClass> T updateCompoundRecord(T record);
+    <T extends CompoundSQLRecordClass> List<T> updateCompoundRecords(List<T> records);
 
     <T extends SQLRecord> T updateOrAddRecord(T record);
     <T extends SQLRecord> List<T> updateAndAddRecords(List<T> records);
+    <T extends CompoundSQLRecordClass> T updateOrAddCompoundRecord(T record);
+    <T extends CompoundSQLRecordClass> List<T> updateOrAddCompoundRecords(List<T> records);
 
     <T extends SQLRecord> T getMatch(T record);
+    <T extends CompoundSQLRecordClass> T getCompoundMatch(T record);
 
     <T extends SQLRecord> T getRecordById(Long id, T record);
     <T extends SQLRecord> T getRecordById(Long id, Class<T> recordClass);
     <T extends SQLRecord> T getRecordById(Long id, String tableName);
     <T extends SQLRecord> List<T> getRecordsByIds(List<Long> ids, Class<T> recordClass);
+
+    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, T record);
+    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass);
+    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName);
+    <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass);
 
     <T extends SQLRecord> List<T> getMatchByColumnNames(T record, List<String> columnNames);
     <T extends SQLRecord> List<T> getMatchByComponents(T record, RecordComponent[] components);

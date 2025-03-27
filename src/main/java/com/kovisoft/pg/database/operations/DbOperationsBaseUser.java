@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kovisoft.logger.exports.Logger;
 import com.kovisoft.logger.exports.LoggerFactory;
+import com.kovisoft.pg.database.data.CompoundSQLRecordClass;
 import com.kovisoft.pg.database.data.SQLRecord;
 import com.kovisoft.pg.database.data.exports.*;
 import com.kovisoft.simple.connection.pool.exports.ConnectionWrapper;
@@ -96,6 +97,17 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         return List.of();
     }
 
+    @Override
+    public <T extends CompoundSQLRecordClass> T addCompoundRecord(T record) {
+
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> List<T> addCompoundRecords(List<T> records) {
+        return null;
+    }
+
 
     @Override
     public <T extends SQLRecord> T updateRecord(T record) {
@@ -132,6 +144,16 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     @Override
+    public <T extends CompoundSQLRecordClass> T updateCompoundRecord(T record) {
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> List<T> updateCompoundRecords(List<T> records) {
+        return null;
+    }
+
+    @Override
     public <T extends SQLRecord> T updateOrAddRecord(T record) {
         return ((record.getPrimaryKey() == null) ? addRecord(record) : updateRecord(record));
     }
@@ -147,6 +169,16 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     @Override
+    public <T extends CompoundSQLRecordClass> T updateOrAddCompoundRecord(T record) {
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> List<T> updateOrAddCompoundRecords(List<T> records) {
+        return null;
+    }
+
+    @Override
     public <T extends SQLRecord> T getMatch(T record) {
         try {
             PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + MATCH);
@@ -155,6 +187,11 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         } catch (Exception e) {
             logger.except("Match attempt failed with exception", e);
         }
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> T getCompoundMatch(T record) {
         return null;
     }
 
@@ -222,6 +259,26 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             logger.except("Failed to get records by primaryKeys for Table: " + recordClass.getSimpleName(), e);
         }
         return List.of();
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, T record) {
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass) {
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName) {
+        return null;
+    }
+
+    @Override
+    public <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass) {
+        return null;
     }
 
     //TODO: Implement these later when I need them, for now they are placeholders.
