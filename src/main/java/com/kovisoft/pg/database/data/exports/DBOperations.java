@@ -29,6 +29,7 @@ public interface DBOperations {
     <T extends CompoundSQLRecordClass> List<T> updateOrAddCompoundRecords(List<T> records);
 
     <T extends SQLRecord> T getMatch(T record);
+    <T extends SQLRecord> T getMatchNoId(T record);
     <T extends CompoundSQLRecordClass> T getCompoundMatch(T record);
 
     <T extends SQLRecord> T getRecordById(Long id, T record);
@@ -37,9 +38,9 @@ public interface DBOperations {
     <T extends SQLRecord> List<T> getRecordsByIds(List<Long> ids, Class<T> recordClass);
 
     <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, T record);
-    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass);
-    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName);
-    <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass);
+//    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass);
+//    <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName);
+//    <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass);
 
     <T extends SQLRecord> List<T> getMatchByColumnNames(T record, List<String> columnNames);
     <T extends SQLRecord> List<T> getMatchByComponents(T record, RecordComponent[] components);

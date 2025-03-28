@@ -640,6 +640,8 @@ public class DBManagerImpl extends DBManager {
         prepMap.put(tableName + AbstractDbOperations.UPDATE_MANY, updateSB.toString() +";");
         prepMap.put(tableName + AbstractDbOperations.UPDATE, updateSB.append(" RETURNING *;").toString());
 
+        String matchNoId = matchSB.substring(0, matchSB.length() - 4);
+        prepMap.put(tableName + AbstractDbOperations.MATCH_NO_ID, matchNoId);
         matchSB.append(primaryKey).append(" = ?");
         prepMap.put(tableName + AbstractDbOperations.MATCH, matchSB.toString());
 

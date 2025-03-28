@@ -1,10 +1,13 @@
 package com.kovisoft.pg.database.operations;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.kovisoft.logger.exports.Logger;
 import com.kovisoft.logger.exports.LoggerFactory;
+import com.kovisoft.pg.database.data.CompoundSQLRecord;
 import com.kovisoft.pg.database.data.CompoundSQLRecordClass;
 import com.kovisoft.pg.database.data.SQLRecord;
 import com.kovisoft.pg.database.data.exports.*;
@@ -17,6 +20,7 @@ import java.lang.reflect.RecordComponent;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class DbOperationsBaseUser extends AbstractDbOperations implements DBOperations {
 
@@ -60,7 +64,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     public <T extends SQLRecord> T addRecord(T record) {
         try{
 
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + INSERT);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + INSERT);
             populateStatement(pStmt, record, false);
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e) {
@@ -99,20 +103,44 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends CompoundSQLRecordClass> T addCompoundRecord(T record) {
-
+        try{
+            List<? extends SQLRecord> children = record.getChildRecords();
+            SQLRecord parent = record.getParentRecord();
+            parent = updateOrAddRecord(parent);
+            children = updateAndAddRecords(children);
+            record.setParentRecord(parent);
+            record.setChildRecords(children);
+            SQLRecord cRecord = record.getCompoundRecord();
+            SQLRecord match = getMatchNoId(cRecord);
+            if(match == null){
+                match = updateOrAddRecord(cRecord);
+            }
+            record.setCompoundRecord(match);
+            return record;
+        } catch (Exception e){
+            logger.except("Exception occurred during add of Compound Record.", e);
+        }
         return null;
     }
 
     @Override
     public <T extends CompoundSQLRecordClass> List<T> addCompoundRecords(List<T> records) {
-        return null;
+        //TODO Fix this when I fix the batching tables stuff.
+        if(records == null || records.isEmpty()) return records;
+        List<T> returnedRecords = new ArrayList<>(records.size());
+        for(T record : records){
+            CompoundSQLRecordClass recordInstance = addCompoundRecord(record);
+            if(recordInstance == null) continue;
+            returnedRecords.add((T)recordInstance);
+        }
+        return returnedRecords;
     }
 
 
     @Override
     public <T extends SQLRecord> T updateRecord(T record) {
         try{
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + UPDATE);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + UPDATE);
             populateStatement(pStmt, record, true);
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e) {
@@ -145,12 +173,14 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends CompoundSQLRecordClass> T updateCompoundRecord(T record) {
-        return null;
+        // TODO: For now there is no difference
+        return addCompoundRecord(record);
     }
 
     @Override
     public <T extends CompoundSQLRecordClass> List<T> updateCompoundRecords(List<T> records) {
-        return null;
+        // TODO: For now there is no difference
+        return addCompoundRecords(records);
     }
 
     @Override
@@ -163,29 +193,55 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         List<T> inserts = records.stream().filter(record -> record.getPrimaryKey() == null).toList();
         List<T> updates = records.stream().filter(record -> record.getPrimaryKey() != null).toList();
         List<T> returns = new ArrayList<>(records.size());
-        returns.addAll(addRecords(inserts));
-        returns.addAll(updateRecords(updates));
+
+        // This should appropriately group inserts and adds so that multiple classes in a single list
+        // work correctly by adding them in "batches"... Kind of a stop-gap until I spend the time
+        // differentiating in batching, and creating.
+        inserts.stream().collect(Collectors.groupingBy(SQLRecord::getClass))
+                .forEach((clazz, groupRecords) -> {
+                    returns.addAll(addRecords(groupRecords));
+                });
+        updates.stream().collect(Collectors.groupingBy(SQLRecord::getClass))
+                .forEach((clazz, groupRecords) -> {
+                    returns.addAll(updateRecords(groupRecords));
+                });
+//        returns.addAll(addRecords(inserts));
+//        returns.addAll(updateRecords(updates));
         return returns;
     }
 
     @Override
     public <T extends CompoundSQLRecordClass> T updateOrAddCompoundRecord(T record) {
-        return null;
+        // TODO: For now there is no difference
+        return addCompoundRecord(record);
     }
 
     @Override
     public <T extends CompoundSQLRecordClass> List<T> updateOrAddCompoundRecords(List<T> records) {
-        return null;
+        // TODO: For now there is no difference
+        return addCompoundRecords(records);
     }
 
     @Override
     public <T extends SQLRecord> T getMatch(T record) {
         try {
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + MATCH);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + MATCH);
             populateStatement(pStmt, record, true); //Bit hacky, but it works so... not a hack ;)
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e) {
             logger.except("Match attempt failed with exception", e);
+        }
+        return null;
+    }
+
+    @Override
+    public <T extends SQLRecord> T getMatchNoId(T record){
+        try{
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + MATCH_NO_ID);
+            populateStatement(pStmt, record, false);
+            return record.getNewRecord(executeSingleQuery(pStmt));
+        } catch (Exception e) {
+            logger.except("Match without id attempt failed with exception", e);
         }
         return null;
     }
@@ -198,7 +254,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     @Override
     public <T extends SQLRecord> T  getRecordById(Long primaryKey, T record) {
         try {
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + PRIMARY_KEY);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + PRIMARY_KEY);
             pStmt.setLong(1, primaryKey);
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e){
@@ -262,24 +318,43 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     }
 
     @Override
-    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, T record) {
-        return null;
-    }
+    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long primaryKey, T recordInstance) {
+        try {
+            Class<?> compoundClass = recordInstance.getCompoundClass();
+            CompoundSQLRecord cRec = (CompoundSQLRecord) compoundClass.getDeclaredConstructor().newInstance();
+            cRec = getRecordById(primaryKey, cRec);
+            if(cRec.getChildKeys().size() != cRec.getChildTables().size()){
+                throw new IllegalStateException("The Compound Record Table and Key lists do not match in size!");
+            }
+            SQLRecord parent = getRecordById(cRec.getParentKey(), cRec.getParentTable());
 
-    @Override
-    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass) {
-        return null;
-    }
+            List<? extends SQLRecord> childRecords = new ArrayList<>();
+            for(int i = 0; i < cRec.getChildTables().size(); i++){
+                childRecords.add(getRecordById(cRec.getChildKeys().get(i), cRec.getChildTables().get(i)));
+            }
+            Constructor<T> classConstructor = (Constructor<T>) recordInstance.getClass().getDeclaredConstructor(SQLRecord.class, List.class, CompoundSQLRecord.class);
+            return classConstructor.newInstance(parent, childRecords, cRec);
 
-    @Override
-    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName) {
+        } catch (Exception e){
+            logger.except("Exception occurred while attempting to build Compound Record Class!", e);
+        }
         return null;
     }
-
-    @Override
-    public <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass) {
-        return null;
-    }
+//
+//    @Override
+//    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, Class<T> recordClass) {
+//        return null;
+//    }
+//
+//    @Override
+//    public <T extends CompoundSQLRecordClass> T getCompoundRecordById(Long id, String tableName) {
+//        return null;
+//    }
+//
+//    @Override
+//    public <T extends CompoundSQLRecordClass> List<T> getCompoundRecordsById(List<Long> ids, Class<T> recordClass) {
+//        return null;
+//    }
 
     //TODO: Implement these later when I need them, for now they are placeholders.
     @Override
@@ -344,7 +419,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     @Override
     public <T extends SQLRecord> List<T> getAllEntries(T record) {
         try{
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + ALL);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + ALL);
             ResultSet rs = pStmt.executeQuery();
             List<Map<String, Object>> objMaps = processQueryResultSet(rs);
             return reflectRecordsFromMaps(objMaps, record.getClass());
@@ -448,7 +523,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             return null;
         }
         try{
-            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getClass().getSimpleName().toLowerCase() + DELETE);
+            PreparedStatement pStmt = borrowCW().getPreparedStatement(record.getTableName() + DELETE);
             pStmt.setLong(1, record.getPrimaryKey());
             return record.getNewRecord(executeSingleQuery(pStmt));
         } catch (Exception e) {
@@ -536,7 +611,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
         if(records == null || records.isEmpty()) return Map.of();
         HashMap<Class<T>, PreparedStatement> batchMap = new HashMap<>();
-        String className = records.getFirst().getClass().getSimpleName().toLowerCase();
+        String className = records.getFirst().getTableName();
         PreparedStatement pStmt = cw.getPreparedStatement(className + keyAppend);
         for(SQLRecord record : records){
             try{
@@ -605,7 +680,20 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 } else if(rootNode.has("keyType")){
                     Class<?> keyType = Class.forName(rootNode.get("keyType").asText());
                     Class<?> valueType = Class.forName(rootNode.get("valueType").asText());
-                    value = om.readValue(json, om.getTypeFactory().constructParametricType(HashMapHolder.class, keyType, valueType));
+                    try{
+                        HashMap<String, Object> map = om.readValue(rootNode.get("map").asText(), HashMap.class);
+                        value = HashMapHolder.class
+                                .getDeclaredConstructor(keyType, valueType, Map.class)
+                                .newInstance(keyType, valueType, map);
+                    } catch (MismatchedInputException e) {
+                        logger.except("MismatchedInputException occurred during HashMapHolder conversion from db!", e);
+                        value = new HashMapHolder<>(keyType, valueType);
+                    } catch (Exception e) {
+                        logger.except("Exception occurred during HashMapHolder conversion from db!", e);
+                        value = null;
+                    }
+
+
                 } else {
                     logger.warn("Unknown JSONB type ignored for column named: " + columnName);
                     value = null;

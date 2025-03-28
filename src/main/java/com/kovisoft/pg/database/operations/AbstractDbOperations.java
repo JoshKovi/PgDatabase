@@ -9,6 +9,7 @@ public abstract class AbstractDbOperations implements DBOperations {
     public static final String UPDATE = "-update";
     public static final String UPDATE_MANY = "-update-many";
     public static final String MATCH = "-match";
+    public static final String MATCH_NO_ID = "-match-no-id";
     public static final String PRIMARY_KEY = "-pk";
     public static final String ALL = "-all";
     public static final String ALL_LIMIT = "-all-limit";

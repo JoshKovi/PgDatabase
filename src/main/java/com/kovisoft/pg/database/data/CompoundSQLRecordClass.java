@@ -7,6 +7,9 @@ public abstract class CompoundSQLRecordClass {
 
     public CompoundSQLRecordClass(){};
     public CompoundSQLRecordClass(Map<String, Object> objMap){};
+    public CompoundSQLRecordClass(SQLRecord parent, List<? extends SQLRecord> children, CompoundSQLRecord compoundRecord){};
+
+    public abstract <T extends CompoundSQLRecord> Class<T> getCompoundClass();
 
     public abstract <T extends SQLRecord> T getCompoundRecord() throws IllegalStateException;
     public abstract <T extends SQLRecord> T getParentRecord();

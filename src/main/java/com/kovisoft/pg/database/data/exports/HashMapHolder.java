@@ -1,13 +1,13 @@
 package com.kovisoft.pg.database.data.exports;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE)
 public class HashMapHolder<K,V> {
 
     private final Class<?> keyType;
@@ -20,13 +20,14 @@ public class HashMapHolder<K,V> {
         this.hashMap = new HashMap<>();
     }
 
-    @JsonCreator
-    public HashMapHolder(@JsonProperty("keyType") Class<K> keyType, @JsonProperty("valueType") Class<V> valueType, @JsonProperty("map") Map<K, V> map){
+
+    public HashMapHolder(Class<K> keyType, Class<V> valueType,  Map<K, V> map){
         this(keyType, valueType);
         this.hashMap.putAll(map);
     }
 
-    public HashMapHolder(Class<K> keyType, Class<V> valueType, Object map){
+    @JsonCreator
+    public HashMapHolder(@JsonProperty("keyType")Class<K> keyType, @JsonProperty("valueType") Class<V> valueType, @JsonProperty("map") Object map){
         this.keyType = keyType;
         this.valueType = valueType;
         if(map == null){
@@ -87,6 +88,8 @@ public class HashMapHolder<K,V> {
     public Class<?> getValueType(){
         return valueType;
     }
+
+    public void setMap(Map<K,V> map){this.hashMap = new HashMap<K,V>(map);}
 
 
 }

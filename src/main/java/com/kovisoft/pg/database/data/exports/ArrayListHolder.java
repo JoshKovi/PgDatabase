@@ -1,8 +1,6 @@
 package com.kovisoft.pg.database.data.exports;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +13,8 @@ import java.util.Collection;
  * actually connected to the list inside.
  * @param <T> The Type parameter aka the class.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE)
 public class ArrayListHolder <T>{
 
     private ArrayList<T> list;
@@ -35,8 +35,7 @@ public class ArrayListHolder <T>{
      * @param type The Class of the data held in List.
      * @param list The list containing the data of type.
      */
-    @JsonCreator
-    public ArrayListHolder(@JsonProperty("type") Class<T> type, @JsonProperty("list")List<T> list){
+    public ArrayListHolder( Class<T> type, List<T> list){
         clazz = type;
         this.list = new ArrayList<>(list);
     }
@@ -49,7 +48,8 @@ public class ArrayListHolder <T>{
      * @throws IllegalStateException If the Object fails the List.class.isAssignableFrom check or
      * contains an element that can not be cast to T.
      */
-    public ArrayListHolder(Class<T> type, Object list){
+    @JsonCreator
+    public ArrayListHolder(@JsonProperty("type")Class<T> type, @JsonProperty("list")Object list){
         clazz = type;
         if(list == null){
             this.list = new ArrayList<>();
