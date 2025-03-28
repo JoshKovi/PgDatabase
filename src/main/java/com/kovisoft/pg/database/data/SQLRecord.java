@@ -9,7 +9,7 @@ public interface SQLRecord {
     // Each interface needs a constructor of type Map<String, Object> to work with most database operations
     // For ease I recommend using a TreeMap with String.CASE_INSENSITIVE_ORDER set.
 
-    Long id();
+    Long getPrimaryKey();
 
     /**
      * This is used to call a Map constructor that must be defined to handle

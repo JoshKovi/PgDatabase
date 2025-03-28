@@ -35,6 +35,7 @@ public class DBManagerConfig{
      * @param host The database host
      * @param port The database port
      * @param migrate If true in conjunction with passing TableMigration this will attempt to migrate the entire db.
+     * @param destructiveColumns If true will delete columns that are not present in the records, use with caution.
      * @param userThreads The max datasource threads allocated for this user
      * @param adminThreads The max datasource threads allocated for this user
      * @param records The list of Records class that implement SQL Methods (each is its own table);
@@ -59,6 +60,26 @@ public class DBManagerConfig{
         this.adminThreads = adminThreads;
         this.records = records;
 
+    }
+
+    @SuppressWarnings("unchecked")
+    public DBManagerConfig(DBManagerConfig config, Map<String, Object> overrideMap) {
+        TreeMap<String, Object> treeMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        treeMap.putAll(overrideMap);
+        this.superUser = (String) overrideMap.getOrDefault("superUser", config.getSuperUser());
+        this.superPass = (String) overrideMap.getOrDefault("superPass", config.getSuperPass());
+        this.user = (String) overrideMap.getOrDefault("user", config.getUser());
+        this.pass = (String) overrideMap.getOrDefault("pass", config.getPass());
+        this.db = (String) overrideMap.getOrDefault("db", config.getDb());
+        this.adminUser = (String) overrideMap.getOrDefault("adminUser", config.getAdminUser());
+        this.adminPass = (String) overrideMap.getOrDefault("adminPass", config.getAdminPass());
+        this.host = (String) overrideMap.getOrDefault("host", config.getHost());
+        this.port = (int) overrideMap.getOrDefault("port", config.getPort());
+        this.migrate = (boolean) overrideMap.getOrDefault("migrate", config.isMigrate());
+        this.destructiveColumns = (boolean) overrideMap.getOrDefault("destructiveColumns", config.isDestructiveColumns());
+        this.userThreads = (Integer) overrideMap.getOrDefault("userThreads", config.getUserThreads());
+        this.adminThreads = (Integer) overrideMap.getOrDefault("adminThreads", config.getAdminThreads());
+        this.records = (Map<Class<? extends SQLRecord>, String>) treeMap.getOrDefault("records", config.getRecords());
     }
 
     public DBManagerConfig(Map<String, Object> creationMap) throws ClassCastException {
