@@ -10,6 +10,7 @@ public interface SQLRecord {
     // For ease I recommend using a TreeMap with String.CASE_INSENSITIVE_ORDER set.
 
     Long getPrimaryKey();
+    default String getTableName(){return this.getClass().getSimpleName().toLowerCase();}
 
     /**
      * This is used to call a Map constructor that must be defined to handle
