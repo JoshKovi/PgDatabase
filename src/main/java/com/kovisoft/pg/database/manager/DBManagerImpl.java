@@ -471,7 +471,7 @@ public class DBManagerImpl extends DBManager {
                 typeMap.put(comp.getName().toLowerCase(), SQLConvertType.getByClassSimpleName(comp.getType().getSimpleName()));
             }
         }
-        if(typeMap.size() == 0) return;
+        if(typeMap.isEmpty()) return;
         for(Map.Entry<String, SQLConvertType> column : typeMap.entrySet()){
             if(column.getValue() == null) throw new IllegalArgumentException(
                     String.format("Could not alter %s with %s as it is an unsupported type!", recordClass.getSimpleName(),
