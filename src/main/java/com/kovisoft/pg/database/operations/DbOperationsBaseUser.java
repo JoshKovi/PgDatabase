@@ -292,6 +292,13 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
         return null;
     }
 
+    public <T extends SQLRecord> List<T> getRecordsByIds(List<Long> primaryKeys, String tableName){
+        Optional<Class<? extends SQLRecord>> recordClass = dbManager.getRecordClasses().stream()
+                .filter(clazz -> clazz.getSimpleName().equalsIgnoreCase(tableName)).findFirst();
+        if(recordClass.isEmpty()) throw new IllegalArgumentException("No class matches the table! " + tableName);
+        return getRecordsByIds(primaryKeys, (Class<T>) recordClass.get());
+    }
+
     @Override
     public <T extends SQLRecord> List<T> getRecordsByIds(List<Long> primaryKeys, Class<T> recordClass) {
         List<Long> nonNullPrimaryKeys = primaryKeys.stream().filter(Objects::nonNull).toList();
@@ -323,14 +330,11 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
             Class<?> compoundClass = recordInstance.getCompoundClass();
             CompoundSQLRecord cRec = (CompoundSQLRecord) compoundClass.getDeclaredConstructor().newInstance();
             cRec = getRecordById(primaryKey, cRec);
-            if(cRec.getChildKeys().size() != cRec.getChildTables().size()){
-                throw new IllegalStateException("The Compound Record Table and Key lists do not match in size!");
-            }
             SQLRecord parent = getRecordById(cRec.getParentKey(), cRec.getParentTable());
 
             List<? extends SQLRecord> childRecords = new ArrayList<>();
-            for(int i = 0; i < cRec.getChildTables().size(); i++){
-                childRecords.add(getRecordById(cRec.getChildKeys().get(i), cRec.getChildTables().get(i)));
+            for(Map.Entry<String, ArrayListHolder<Long>> children : cRec.getChildMap().getEntrySet()){
+                childRecords.addAll(getRecordsByIds(children.getValue().getList(), children.getKey()));
             }
             Constructor<T> classConstructor = (Constructor<T>) recordInstance.getClass().getDeclaredConstructor(SQLRecord.class, List.class, CompoundSQLRecord.class);
             return classConstructor.newInstance(parent, childRecords, cRec);
@@ -681,11 +685,9 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                     Class<?> keyType = Class.forName(rootNode.get("keyType").asText());
                     Class<?> valueType = Class.forName(rootNode.get("valueType").asText());
                     try{
-                        HashMap<String, Object> map = om.readValue(rootNode.get("map").asText(), HashMap.class);
-                        value = HashMapHolder.class
-                                .getDeclaredConstructor(keyType, valueType, Map.class)
-                                .newInstance(keyType, valueType, map);
-                    } catch (MismatchedInputException e) {
+                        Map<?, ?> objMap = om.convertValue(rootNode.get("map"), Map.class);
+                        value = new HashMapHolder<>(keyType, valueType, objMap);;
+                    } catch (ClassCastException | IllegalArgumentException | IllegalStateException e) {
                         logger.except("MismatchedInputException occurred during HashMapHolder conversion from db!", e);
                         value = new HashMapHolder<>(keyType, valueType);
                     } catch (Exception e) {

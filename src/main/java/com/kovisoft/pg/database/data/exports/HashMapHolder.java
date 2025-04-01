@@ -72,6 +72,11 @@ public class HashMapHolder<K,V> {
         return hashMap.size();
     }
 
+    @JsonIgnore
+    public boolean isEmpty(){
+        return hashMap.isEmpty();
+    }
+
     public Map<K, V> getMap(){
         return this.hashMap;
     }
