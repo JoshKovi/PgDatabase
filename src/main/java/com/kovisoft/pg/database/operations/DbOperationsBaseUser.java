@@ -116,6 +116,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 match = updateOrAddRecord(cRecord);
             }
             record.setCompoundRecord(match);
+            T retrieved = getCompoundRecordById(match.getPrimaryKey(), record);
             return record;
         } catch (Exception e){
             logger.except("Exception occurred during add of Compound Record.", e);
@@ -185,14 +186,27 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends SQLRecord> T updateOrAddRecord(T record) {
+        T match = getMatchNoId(record);
+        if(match != null) return match;
         return ((record.getPrimaryKey() == null) ? addRecord(record) : updateRecord(record));
     }
 
     @Override
-    public <T extends SQLRecord> List<T> updateAndAddRecords(List<T> records) {
+    public <T extends SQLRecord> List<T> updateAndAddRecords(List<T> recordsUnchecked) {
+        List<T> records = new ArrayList<>();
+        List<T> returns = new ArrayList<>(recordsUnchecked.size());
+        recordsUnchecked.stream().collect(Collectors.groupingBy(SQLRecord::getClass)).forEach(
+                (clazz, groupRecords) ->{
+                    for(T rec : groupRecords){
+                         T match = getMatchNoId(rec);
+                         if(match == null) records.add(rec);
+                         else returns.add(match);
+                    }
+                }
+        );
         List<T> inserts = records.stream().filter(record -> record.getPrimaryKey() == null).toList();
         List<T> updates = records.stream().filter(record -> record.getPrimaryKey() != null).toList();
-        List<T> returns = new ArrayList<>(records.size());
+
 
         // This should appropriately group inserts and adds so that multiple classes in a single list
         // work correctly by adding them in "batches"... Kind of a stop-gap until I spend the time
