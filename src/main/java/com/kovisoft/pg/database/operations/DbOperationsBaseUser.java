@@ -9,6 +9,7 @@ import com.kovisoft.logger.exports.Logger;
 import com.kovisoft.logger.exports.LoggerFactory;
 import com.kovisoft.pg.database.data.CompoundSQLRecord;
 import com.kovisoft.pg.database.data.CompoundSQLRecordClass;
+import com.kovisoft.pg.database.data.SQLCompoundRecordContainer;
 import com.kovisoft.pg.database.data.SQLRecord;
 import com.kovisoft.pg.database.data.exports.*;
 import com.kovisoft.simple.connection.pool.exports.ConnectionWrapper;
@@ -104,6 +105,10 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     @Override
     public <T extends CompoundSQLRecordClass> T addCompoundRecord(T record) {
         try{
+            if(record instanceof SQLCompoundRecordContainer){
+                List<CompoundSQLRecordClass> records = ((SQLCompoundRecordContainer) record).getCompoundRecords();
+                ((SQLCompoundRecordContainer) record).setCompoundRecords(addCompoundRecords(records));
+            }
             List<? extends SQLRecord> children = record.getChildRecords();
             SQLRecord parent = record.getParentRecord();
             parent = updateOrAddRecord(parent);
