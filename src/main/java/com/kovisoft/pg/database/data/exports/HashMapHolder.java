@@ -3,6 +3,7 @@ package com.kovisoft.pg.database.data.exports;
 import com.fasterxml.jackson.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -27,6 +28,7 @@ public class HashMapHolder<K,V> {
     }
 
     @JsonCreator
+    @SuppressWarnings("unchecked")
     public HashMapHolder(@JsonProperty("keyType")Class<K> keyType, @JsonProperty("valueType") Class<V> valueType, @JsonProperty("map") Object map){
         this.keyType = keyType;
         this.valueType = valueType;
@@ -45,11 +47,13 @@ public class HashMapHolder<K,V> {
         if(objMap.isEmpty()) return;
         for(Map.Entry<?, ?> entry : objMap.entrySet()){
             try{
-                @SuppressWarnings("unchecked")
                 K key = (K) entry.getKey();
-                V value = (V) entry.getValue();
+                V value = (valueType != ArrayListHolder.class) ? (V) entry.getValue():
+                        (V)new ArrayListHolder<>(Class.forName((String) ((Map<String, Object>)entry.getValue()).get("type")),
+                                ((Map<String, Object>)entry.getValue()).get("list"));
+
                 this.hashMap.put(key, value);
-            } catch (ClassCastException e){
+            } catch (ClassCastException | ClassNotFoundException e){
                 throw new IllegalStateException("Map contained one or more elements that could not be converted to the proper key,value pair.");
             }
         }

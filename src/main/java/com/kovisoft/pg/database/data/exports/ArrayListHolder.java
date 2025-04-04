@@ -49,6 +49,7 @@ public class ArrayListHolder <T>{
      * contains an element that can not be cast to T.
      */
     @JsonCreator
+    @SuppressWarnings("unchecked")
     public ArrayListHolder(@JsonProperty("type")Class<T> type, @JsonProperty("list")Object list){
         clazz = type;
         if(list == null){
@@ -66,7 +67,9 @@ public class ArrayListHolder <T>{
         if(objList.isEmpty()){ return;}
         for(Object obj : objList){
             try{
-                @SuppressWarnings("unchecked")
+                if(clazz == Long.class && obj.getClass() == Integer.class){
+                    obj = Long.parseLong(obj.toString());
+                }
                 T item = (T) obj;
                 this.list.add(item);
             } catch (ClassCastException e){

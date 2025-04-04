@@ -28,6 +28,7 @@ public class Records {
         if(floatObj == null) return null;
         if(floatObj instanceof Float) return (Float) floatObj;
         if(floatObj instanceof Integer) return Float.parseFloat(floatObj.toString());
+        if(floatObj instanceof Double) return Float.parseFloat(floatObj.toString());
         return Float.parseFloat((String)floatObj);
     }
 

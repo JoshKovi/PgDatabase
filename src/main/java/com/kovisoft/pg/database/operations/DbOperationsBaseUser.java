@@ -9,6 +9,7 @@ import com.kovisoft.logger.exports.Logger;
 import com.kovisoft.logger.exports.LoggerFactory;
 import com.kovisoft.pg.database.data.CompoundSQLRecord;
 import com.kovisoft.pg.database.data.CompoundSQLRecordClass;
+import com.kovisoft.pg.database.data.SQLCompoundRecordContainer;
 import com.kovisoft.pg.database.data.SQLRecord;
 import com.kovisoft.pg.database.data.exports.*;
 import com.kovisoft.simple.connection.pool.exports.ConnectionWrapper;
@@ -104,6 +105,10 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
     @Override
     public <T extends CompoundSQLRecordClass> T addCompoundRecord(T record) {
         try{
+            if(record instanceof SQLCompoundRecordContainer){
+                List<CompoundSQLRecordClass> records = ((SQLCompoundRecordContainer) record).getCompoundRecords();
+                ((SQLCompoundRecordContainer) record).setCompoundRecords(addCompoundRecords(records));
+            }
             List<? extends SQLRecord> children = record.getChildRecords();
             SQLRecord parent = record.getParentRecord();
             parent = updateOrAddRecord(parent);
@@ -116,6 +121,7 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
                 match = updateOrAddRecord(cRecord);
             }
             record.setCompoundRecord(match);
+            T retrieved = getCompoundRecordById(match.getPrimaryKey(), record);
             return record;
         } catch (Exception e){
             logger.except("Exception occurred during add of Compound Record.", e);
@@ -185,14 +191,27 @@ public class DbOperationsBaseUser extends AbstractDbOperations implements DBOper
 
     @Override
     public <T extends SQLRecord> T updateOrAddRecord(T record) {
+        T match = getMatchNoId(record);
+        if(match != null) return match;
         return ((record.getPrimaryKey() == null) ? addRecord(record) : updateRecord(record));
     }
 
     @Override
-    public <T extends SQLRecord> List<T> updateAndAddRecords(List<T> records) {
+    public <T extends SQLRecord> List<T> updateAndAddRecords(List<T> recordsUnchecked) {
+        List<T> records = new ArrayList<>();
+        List<T> returns = new ArrayList<>(recordsUnchecked.size());
+        recordsUnchecked.stream().collect(Collectors.groupingBy(SQLRecord::getClass)).forEach(
+                (clazz, groupRecords) ->{
+                    for(T rec : groupRecords){
+                         T match = getMatchNoId(rec);
+                         if(match == null) records.add(rec);
+                         else returns.add(match);
+                    }
+                }
+        );
         List<T> inserts = records.stream().filter(record -> record.getPrimaryKey() == null).toList();
         List<T> updates = records.stream().filter(record -> record.getPrimaryKey() != null).toList();
-        List<T> returns = new ArrayList<>(records.size());
+
 
         // This should appropriately group inserts and adds so that multiple classes in a single list
         // work correctly by adding them in "batches"... Kind of a stop-gap until I spend the time
