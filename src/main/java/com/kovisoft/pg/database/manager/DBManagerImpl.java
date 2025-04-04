@@ -621,7 +621,7 @@ public class DBManagerImpl extends DBManager {
             //Match Record
             matchSB.append(fieldName);
             if(isJsonB){
-                matchSB.append("@> ?::JSONB AND ");
+                matchSB.append(" = ?::JSONB AND ");
             } else {
                 matchSB.append(" = ? AND ");
             }
